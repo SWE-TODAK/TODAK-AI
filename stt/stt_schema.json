@@ -1,0 +1,62 @@
+{
+  "type": "object",
+  "title": "SttResultData",
+  "description": "/internal/stt 성공 응답의 data 필드 스키마",
+  "properties": {
+    "recordingId": {
+      "type": "string",
+      "description": "STT가 수행된 녹음 ID (예: r-uuid-def)"
+    },
+    "consultationId": {
+      "type": "string",
+      "description": "해당 녹음이 속한 진료 ID (예: c-uuid-123)"
+    },
+    "duration": {
+      "type": "integer",
+      "description": "전체 음성 길이 (초 단위)"
+    },
+    "language": {
+      "type": "string",
+      "description": "인식된 언어 코드 (예: ko, en)"
+    },
+    "sttResult": {
+      "type": "array",
+      "description": "Whisper/OpenAI STT에서 반환한 segment 배열",
+      "items": {
+        "type": "object",
+        "properties": {
+          "timestamp": {
+            "type": "string",
+            "description": "해당 segment의 시작 시각, HH:MM:SS 형태의 문자열"
+          },
+          "text": {
+            "type": "string",
+            "description": "해당 구간의 인식 결과 텍스트"
+          }
+        },
+        "required": ["timestamp", "text"]
+      }
+    },
+    "meta": {
+      "type": "object",
+      "description": "STT 처리 메타 정보",
+      "properties": {
+        "provider": {
+          "type": "string",
+          "description": "STT 제공자 (예: openai)"
+        },
+        "model": {
+          "type": "string",
+          "description": "사용된 STT 모델명 (예: whisper-1, gpt-4o-mini-transcribe)"
+        },
+        "processedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "STT 처리가 완료된 시각(ISO8601)"
+        }
+      },
+      "required": ["provider", "model", "processedAt"]
+    }
+  },
+  "required": ["recordingId", "consultationId", "sttResult"]
+}
