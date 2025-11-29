@@ -1,75 +1,83 @@
-# STT(녹음 → 텍스트) 설계 문서
+# STT(녹음 → 텍스트) 설계 문서 — 최신 버전
 
-본 문서는 **AI 서버 입장**에서 STT 처리 흐름과  
-Spring ↔ AI 내부 API(`/internal/transcriptions`)의 요청/응답 구조를 정의한다.
+본 문서는 **AI 서버(FastAPI)** 관점에서  
+STT 처리 흐름과 Spring ↔ AI 내부 API(`/internal/transcriptions`)의  
+요청/응답 구조를 정의한다.
 
-AI 서버는 **DB를 직접 수정하지 않고**,  
-OpenAI STT를 호출해 **segment 기반 STT 결과(JSON)** 만 반환한다.  
-DB 반영 및 status 변경은 **Spring** 이 담당한다.
+AI 서버는 **DB 접근을 하지 않으며**,  
+Spring이 전달한 **음성 파일 자체**를 받아  
+OpenAI Whisper STT를 호출한 뒤 **텍스트 결과만 JSON으로 반환**한다.
+
+DB 반영 및 status 변경은 **Spring**이 수행한다.
 
 ---
 
-## 1. STT의 역할
+# 1. STT의 역할
 
 STT의 목적은 다음과 같다:
 
-1. Spring으로부터 `recordingId`, `fileUrl` 을 JSON으로 입력받는다.
-2. `fileUrl` 의 음성 파일을 다운로드한다.
-3. OpenAI STT(Whisper 호스팅, `whisper-1` 등)를 호출한다.
-4. 변환 결과를 segment 배열(timestamp + text) 형태로 정리한다.
-5. duration, language, meta 정보와 함께 JSON으로 Spring에 반환한다.
+1. Spring이 전송한 `recordingId`, `consultationId`, `language`, `file(음성)` 을 입력받는다.
+2. OpenAI Whisper(`whisper-1`) API로 음성 → 텍스트 변환.
+3. 변환된 전체 텍스트를 단일 segment로 정리한다.
+   - (현재 timestamp 없음)
+4. duration, language, meta 정보를 포함해 JSON으로 Spring에 반환한다.
 
 ---
 
-## 2. 내부 API: `POST /internal/stt`
+# 2. 내부 API: `POST /internal/transcriptions`
+
+### 📌 요청 방식  
+**multipart/form-data**
 
 ### 2.1 Request (Spring → AI 서버)
 
-```json
-{
-  "recordingId": "r-uuid-def",
-  "consultationId": "c-uuid-123",
-  "fileUrl": "https://storage.todak.app/recordings/r-uuid-def.m4a",
-  "language": "ko"
-}
-```
+요청 필드:
 
-| 필드            | 타입   | 설명                                 | 필수 |
-|-----------------|--------|--------------------------------------|------|
-| recordingId     | String | STT 대상 녹음 ID (예: r-uuid-def)   | Y    |
-| consultationId  | String | 해당 녹음이 속한 진료 ID            | Y    |
-| fileUrl         | String | S3 등 저장된 음성 파일 URL          | Y    |
-| language        | String | 음성 언어(ko, en 등). 기본 `"ko"`   | N    |
+| 필드            | 타입               | 설명                             | 필수 |
+|-----------------|--------------------|----------------------------------|------|
+| recordingId     | String             | STT 대상 녹음 ID                | Y    |
+| consultationId  | String             | 해당 진료 ID                    | Y    |
+| language        | String             | 기본 `"ko"`                     | N    |
+| file            | Binary(File)       | Spring이 직접 전송한 음성 파일  | Y    |
 
-> `model` 정보는 요청에 포함하지 않는다.  
-> 어떤 STT 모델을 사용할지는 AI 서버 내부 설정에서 관리한다.
+### 2.2 예시 (multipart/form-data)
+
+POST /internal/transcriptions
+Content-Type: multipart/form-data
+X-Internal-Key: todak-internal-xxx
+
+recordingId = "r-uuid"
+consultationId = "c-uuid"
+language = "ko"
+file = (binary wav/m4a/mp3...)
+
+
+- `X-Internal-Key`: Spring ↔ AI 서버 내부 인증 전용 헤더
+- 실제 구현에서는 `INTERNAL_API_KEY` 환경 변수와 비교하여 검증
 
 ---
 
-## 3. STT 처리 및 응답 구조
+# 3. STT 처리 및 응답 구조
 
-### 3.1 OpenAI STT 호출 (내부 로직)
+## 3.1 OpenAI Whisper 호출 (내부 로직 개념)
 
-AI 서버는 다음과 같은 순서로 동작한다:
+AI 서버는 대략 다음 순서로 동작한다:
 
-1. `fileUrl` 로부터 음성 파일 다운로드
-2. OpenAI STT API 호출
+1. FastAPI `UploadFile` 로부터 파일 바이트를 읽는다.
+2. OpenAI Whisper STT 호출:
 
-   - 예시 (Python):
+```python
+result = client.audio.transcriptions.create(
+    model="whisper-1",
+    file=(filename, data_bytes),
+    language=language,
+)
+```
+3. transcript 문자열과 함께 응답 JSON을 구성한다.
+(현재는 별도의 segment 배열 없이, transcript만 반환)
+---
 
-   ```python
-   stt_resp = openai.audio.transcriptions.create(
-       model="gpt-4o-mini-transcribe",  # 또는 whisper-1 등
-       file=audio_file,
-       response_format="json",
-       language=language,
-   )
-   ```
-
-3. OpenAI 응답의 텍스트/segments를 내부 포맷으로 변환
-
-### 3.2 Success Response (AI → Spring)
-
+## 3.2 success response (AI->Spring)
 ```json
 {
   "status": 200,
@@ -77,64 +85,32 @@ AI 서버는 다음과 같은 순서로 동작한다:
   "data": {
     "recordingId": "r-uuid-def",
     "consultationId": "c-uuid-123",
-    "duration": 300,
+    "duration": 118,
     "language": "ko",
-    "sttResult": [
-      {
-        "timestamp": "00:00:10",
-        "text": "안녕하세요, 요즘 속이 불편해서 방문했습니다."
-      },
-      {
-        "timestamp": "00:00:15",
-        "text": "네, 언제부터 그러셨나요?"
-      }
-    ],
+    "transcript": "선생님, 예. 앉으세요. 엄마, 이쪽으로 앉아. 결과가 나왔는데요. CT상 혹이 보여서 MRI촬영을 하셨는데 안타깝게도 악성 가능성이 있어 보여서 조직검사로 확인해 봐야 돼요. ...",
     "meta": {
       "provider": "openai",
       "model": "whisper-1",
-      "processedAt": "2025-11-19T13:00:00Z"
+      "processedAt": "2025-11-29T14:01:07.537563+00:00"
     }
   }
 }
 ```
-
-#### 필드 설명
-
-- `duration` : 전체 음성 길이(초). Whisper 결과 또는 ffprobe 등을 통해 계산.
-- `language` : 인식된 언어 코드(예: `"ko"`).
-- `sttResult` : segment 배열
-  - `timestamp` : `"HH:MM:SS"` 문자열
-  - `text` : 해당 구간의 인식 결과 텍스트
-- `meta` :
-  - `provider` : `"openai"`
-  - `model` : 실제 사용한 STT 모델명 (예: `"whisper-1"`, `"gpt-4o-mini-transcribe"`)
-  - `processedAt` : STT 처리 완료 시각(ISO8601)
-
-> speaker(화자) 정보는 현재 응답에 포함하지 않는다.  
-> 화자 분리는 차후 확장 기능으로 고려한다.
-
+### 필드 설명
+- recordingId : STT가 수행된 녹음 ID
+- consultationId : 녹음이 속한 진료 ID
+- duration : 전체 음성 길이(초). (현재는 0 또는 추후 계산값)
+- language : 인식된 언어 코드(예: "ko")
+- transcript : Whisper가 생성한 전체 STT 텍스트 문자열
+- meta.provider : "openai"
+- meta.model : "whisper-1" 등 실제 사용한 STT 모델명
+- meta.processedAt : STT 처리 완료 시각(ISO8601, UTC 기준)
 ---
 
 ## 4. Spring 측 후처리 (참고)
 
 AI 서버는 DB를 수정하지 않으며,  
 Spring이 STT 결과를 받아 직접 DB에 반영한다.
-
-### Spring에서 수행하는 작업 예시
-
-1. `sttResult` 를 순회하며 전체 transcript 문자열 생성
-
-   ```text
-   "안녕하세요, 요즘 속이 불편해서 방문했습니다.\n네, 언제부터 그러셨나요?\n..."
-   ```
-
-2. `recordings` 테이블 업데이트
-
-   - `transcript` ← 합쳐진 텍스트
-   - `duration_seconds` ← `data.duration`
-   - `status` ← `'TRANSCRIBED'`
-
-3. 필요 시 `sttResult` raw 배열을 별도 컬럼/테이블에 JSON으로 저장 (선택)
 
 ---
 
