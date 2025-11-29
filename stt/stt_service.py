@@ -1,23 +1,11 @@
 # backend/ai/stt/stt_service.py
 
-"""
-STT Service
-
-- Spring → AI 서버 내부 API: POST /internal/transcriptions 에서 호출하는 구현부
-- 기능:
-    1) fileUrl 로부터 음성 파일 다운로드
-    2) OpenAI Whisper(또는 gpt-4o-transcribe)로 STT 수행
-    3) README_AI_PIPELINE.md 에 정의된 형식으로 STT 결과(segment 리스트) 반환
-"""
-
 from __future__ import annotations
 
-import tempfile
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any, Dict, List
 
-import requests
+from fastapi import UploadFile
 from openai import OpenAI
 
 from config import OPENAI_API_KEY
@@ -25,41 +13,23 @@ from config import OPENAI_API_KEY
 client = OpenAI(api_key=OPENAI_API_KEY)
 
 
-def _seconds_to_timestamp(sec: float) -> str:
+def _build_fallback_result(
+    recording_id: str, consultation_id: str, language: str, error: str | None = None
+) -> Dict[str, Any]:
     """
-    초 단위를 HH:MM:SS 포맷의 문자열로 변환.
-    """
-    sec_int = int(sec)
-    h = sec_int // 3600
-    m = (sec_int % 3600) // 60
-    s = sec_int % 60
-    return f"{h:02d}:{m:02d}:{s:02d}"
-
-
-def _download_file(url: str) -> Path:
-    """
-    fileUrl 로부터 음성 파일을 임시 디렉토리에 다운로드한다.
-    """
-    resp = requests.get(url, stream=True, timeout=30)
-    resp.raise_for_status()
-
-    suffix = Path(url).suffix or ".m4a"
-    fd, temp_path = tempfile.mkstemp(suffix=suffix)
-    path = Path(temp_path)
-
-    with path.open("wb") as f:
-        for chunk in resp.iter_content(chunk_size=8192):
-            if chunk:
-                f.write(chunk)
-
-    return path
-
-
-def _build_fallback_result(recording_id: str, consultation_id: str, language: str) -> Dict[str, Any]:
-    """
-    Whisper 호출 실패시 사용할 fallback 응답.
+    Whisper 호출 실패 시 사용할 fallback 응답.
+    에러 메시지도 meta에 같이 넣어준다.
     """
     now = datetime.now(timezone.utc).isoformat()
+    meta: Dict[str, Any] = {
+        "provider": "openai",
+        "model": "none",
+        "processedAt": now,
+        "fallback": True,
+    }
+    if error:
+        meta["error"] = error
+
     return {
         "status": 200,
         "message": "STT 변환이 완료되었습니다. (fallback)",
@@ -69,69 +39,54 @@ def _build_fallback_result(recording_id: str, consultation_id: str, language: st
             "duration": 0,
             "language": language,
             "sttResult": [],
-            "meta": {
-                "provider": "openai",
-                "model": "none",
-                "processedAt": now,
-                "fallback": True,
-            },
+            "meta": meta,
         },
     }
 
 
-async def run_stt(payload: Dict[str, Any]) -> Dict[str, Any]:
+async def run_stt(
+    recording_id: str,
+    consultation_id: str,
+    language: str,
+    upload_file: UploadFile,
+) -> Dict[str, Any]:
     """
     /internal/transcriptions 에서 호출되는 메인 함수.
 
-    Parameters (Spring → AI):
-        {
-          "recordingId": "r-uuid-def",
-          "consultationId": "c-uuid-123",
-          "fileUrl": "https://.../file.m4a",
-          "language": "ko"
-        }
+    Parameters (Spring → AI, multipart/form-data):
+        - recordingId (str)
+        - consultationId (str)
+        - language (str, default "ko")
+        - file (UploadFile)
 
     Returns (AI → Spring):
         README_AI_PIPELINE.md 의 "STT Success Response" 구조와 동일한 JSON
     """
-    recording_id = payload["recordingId"]
-    consultation_id = payload["consultationId"]
-    file_url = payload["fileUrl"]
-    language = payload.get("language", "ko")
-
     try:
-        # 1️⃣ 파일 다운로드
-        audio_path = _download_file(file_url)
+        # 1️⃣ OpenAI Whisper 호출 (가장 단순한 형태)
+        audio_binary = upload_file.file
 
-        # 2️⃣ OpenAI Whisper 호출 (verbose_json 으로 segment 정보 포함)
-        with audio_path.open("rb") as audio_file:
-            # 필요에 따라 model 이름 변경 가능
-            # - "whisper-1"
-            # - "gpt-4o-transcribe"
-            # - "gpt-4o-mini-transcribe"
-            transcription = client.audio.transcriptions.create(
-                model="whisper-1",
-                file=audio_file,
-                response_format="verbose_json",
-                language=language,
-            )
+        # whisper-1 기본 응답은 {"text": "..."} 형태
+        transcription = client.audio.transcriptions.create(
+            model="whisper-1",
+            file=audio_binary,
+            language=language,
+        )
 
-        # transcription: duration, text, segments 등 포함
-        duration = getattr(transcription, "duration", 0) or 0
-        segments_raw: List[Any] = getattr(transcription, "segments", []) or []
+        # 새 SDK에서는 transcription.text 로 접근
+        text: str = getattr(transcription, "text", "") or ""
 
+        # duration 은 일단 0으로 두고, 나중에 필요하면 별도로 계산하거나
+        # 다른 응답 필드에서 읽도록 확장 가능
+        duration = 0
+
+        # MVP: 전체 텍스트를 하나의 segment 로 묶어서 반환
         stt_segments: List[Dict[str, str]] = []
-        for seg in segments_raw:
-            # seg.start / seg.end / seg.text 등을 사용 (초 단위)
-            start_sec = getattr(seg, "start", 0.0)
-            ts = _seconds_to_timestamp(start_sec)
-            text = getattr(seg, "text", "").strip()
-            if not text:
-                continue
+        if text.strip():
             stt_segments.append(
                 {
-                    "timestamp": ts,
-                    "text": text,
+                    "timestamp": "00:00:00",
+                    "text": text.strip(),
                 }
             )
 
@@ -154,6 +109,6 @@ async def run_stt(payload: Dict[str, Any]) -> Dict[str, Any]:
             },
         }
 
-    except Exception:
-        # 에러가 나더라도 Spring 이 전체 플로우를 돌릴 수 있도록
-        return _build_fallback_result(recording_id, consultation_id, language)
+    except Exception as e:
+        # 여기서 에러 내용을 fallback 응답에 같이 실어 보내자 (디버깅용)
+        return _build_fallback_result(recording_id, consultation_id, language, str(e))
