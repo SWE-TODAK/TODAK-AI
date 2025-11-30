@@ -76,3 +76,7 @@ async def create_summary(
     """
     verify_internal_key(x_internal_key)
     return await run_summary(payload)
+
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
