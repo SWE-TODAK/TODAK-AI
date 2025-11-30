@@ -22,7 +22,7 @@ from openai import OpenAI
 from config import OPENAI_API_KEY
 
 # OpenAI 클라이언트 (환경변수에서 키 로드)
-client = OpenAI(api_key=OPENAI_API_KEY)
+client = OpenAI()
 
 # prompt.md 파일 경로
 PROMPT_PATH = Path(__file__).with_name("prompt.md")
