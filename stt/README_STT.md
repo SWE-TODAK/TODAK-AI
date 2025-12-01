@@ -19,14 +19,13 @@ STT의 목적은 다음과 같다:
 1. Spring이 전송한 `recordingId`, `consultationId`, `language`, `file(음성)` 을 입력받는다.
 2. OpenAI Whisper(`whisper-1`) API로 음성 → 텍스트 변환.
 3. 변환된 전체 텍스트를 단일 segment로 정리한다.
-   - (현재 timestamp 없음)
 4. duration, language, meta 정보를 포함해 JSON으로 Spring에 반환한다.
 
 ---
 
 # 2. 내부 API: `POST /internal/transcriptions`
 
-### 📌 요청 방식  
+### 요청 방식  
 **multipart/form-data**
 
 ### 2.1 Request (Spring → AI 서버)
@@ -38,7 +37,7 @@ STT의 목적은 다음과 같다:
 | recordingId     | String             | STT 대상 녹음 ID                | Y    |
 | consultationId  | String             | 해당 진료 ID                    | Y    |
 | language        | String             | 기본 `"ko"`                     | N    |
-| file            | Binary(File)       | Spring이 직접 전송한 음성 파일  | Y    |
+| file            | File       | Spring이 직접 전송한 음성 파일  | Y    |
 
 ### 2.2 예시 (multipart/form-data)
 
@@ -49,11 +48,11 @@ X-Internal-Key: todak-internal-xxx
 recordingId = "r-uuid"
 consultationId = "c-uuid"
 language = "ko"
-file = (binary wav/m4a/mp3...)
+file = (binary wav)
 
 
 - `X-Internal-Key`: Spring ↔ AI 서버 내부 인증 전용 헤더
-- 실제 구현에서는 `INTERNAL_API_KEY` 환경 변수와 비교하여 검증
+  - 실제 구현에서는 `INTERNAL_API_KEY` 환경 변수와 비교하여 검증
 
 ---
 
@@ -74,7 +73,7 @@ result = client.audio.transcriptions.create(
 )
 ```
 3. transcript 문자열과 함께 응답 JSON을 구성한다.
-(현재는 별도의 segment 배열 없이, transcript만 반환)
+
 ---
 
 ## 3.2 success response (AI->Spring)
@@ -107,16 +106,10 @@ result = client.audio.transcriptions.create(
 - meta.processedAt : STT 처리 완료 시각(ISO8601, UTC 기준)
 ---
 
-## 4. Spring 측 후처리 (참고)
 
-AI 서버는 DB를 수정하지 않으며,  
-Spring이 STT 결과를 받아 직접 DB에 반영한다.
+## 4. Error Response 정의
 
----
-
-## 5. Error Response 정의
-
-### 5.1 잘못된 요청 (400 Bad Request)
+### 4.1 잘못된 요청 (400 Bad Request)
 
 ```json
 {
@@ -128,7 +121,7 @@ Spring이 STT 결과를 받아 직접 DB에 반영한다.
 
 예: 필수 필드 누락, fileUrl 형식 오류 등.
 
-### 5.2 인증 실패 (401 Unauthorized)
+### 4.2 인증 실패 (401 Unauthorized)
 
 ```json
 {
@@ -140,7 +133,7 @@ Spring이 STT 결과를 받아 직접 DB에 반영한다.
 
 - `Authorization: Bearer <INTERNAL_API_KEY>` 가 유효하지 않은 경우
 
-### 5.3 내부 오류 (500 Internal Server Error)
+### 4.3 내부 오류 (500 Internal Server Error)
 
 ```json
 {
@@ -154,7 +147,7 @@ Spring이 STT 결과를 받아 직접 DB에 반영한다.
 
 ---
 
-## 6. TODO / 확장 사항
+## 5. TODO / 확장 사항
 
 - sttResult에 speaker 정보 추가 (화자 분리 기능)
 - segment 기반 구간 재생 UI를 위한 추가 메타데이터

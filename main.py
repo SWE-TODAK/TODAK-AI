@@ -1,4 +1,3 @@
-# backend/ai/main.py
 from starlette.formparsers import MultiPartParser
 MultiPartParser.max_part_size = 10 * 1024 * 1024   # 10MB
 MultiPartParser.max_file_size = 50 * 1024 * 1024   # 50MB
@@ -19,7 +18,7 @@ from config import INTERNAL_API_KEY
 from stt.stt_service import run_stt
 from summarizer.summarizer_service import run_summary
 
-# FastAPI 인스턴스 (⭐ uvicorn main:app 에서 찾는 변수)
+# FastAPI 인스턴스
 app = FastAPI(
     title="Todak AI Server",
     description="Internal STT + Summarizer API",
@@ -80,7 +79,3 @@ async def create_summary(
     """
     verify_internal_key(x_internal_key)
     return await run_summary(payload)
-
-@app.get("/health")
-async def health():
-    return {"status": "ok"}

@@ -6,7 +6,7 @@ summary_schema.json 구조를 정확히 따르도록 한다.
 
 ---
 
-## 🧩 SYSTEM 메시지
+## SYSTEM 메시지
 
 너는 한국어 의학 진료 기록을 요약하는 AI 의료 비서이다.
 
@@ -25,7 +25,7 @@ summary_schema.json 구조를 정확히 따르도록 한다.
 
 ---
 
-## 🧩 USER 메시지 템플릿
+## USER 메시지 템플릿
 
 입력 진료 대화(STT 결과):
 

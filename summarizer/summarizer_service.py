@@ -1,5 +1,3 @@
-# backend/ai/summarizer/summarizer_service.py
-
 """
 Summarizer Service
 
@@ -94,7 +92,6 @@ async def run_summary(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     try:
         # OpenAI Chat Completion 호출
-        # 모델 이름은 필요에 따라 변경 가능 (예: gpt-4.1, gpt-4.1-mini 등)
         completion = client.chat.completions.create(
             model="gpt-4.1-mini",
             response_format={"type": "json_object"},
@@ -152,7 +149,7 @@ async def run_summary(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     processed_at = datetime.now(timezone.utc).isoformat()
 
-    # README_AI_PIPELINE.md 에 정의된 응답 래핑
+    # 응답 래핑
     return {
         "status": 200,
         "message": "요약 생성이 완료되었습니다.",

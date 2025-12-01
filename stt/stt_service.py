@@ -1,13 +1,8 @@
-# backend/ai/stt/stt_service.py
-
 from __future__ import annotations
-
 from datetime import datetime, timezone
 from typing import Any, Dict
-
 from fastapi import UploadFile
 from openai import OpenAI
-
 from config import OPENAI_API_KEY
 
 client = OpenAI()
@@ -58,7 +53,7 @@ async def run_stt(
     """
 
     try:
-        # 1️⃣ 파일 전체 bytes 읽기
+        # 1️. 파일 전체 bytes 읽기
         data: bytes = await upload_file.read()
         if not data:
             return _fallback(
@@ -68,7 +63,7 @@ async def run_stt(
                 "Empty file uploaded",
             )
 
-        # 2️⃣ Whisper API 호출 (filename + bytes)
+        # 2️. Whisper API 호출 (filename + bytes)
         filename = upload_file.filename or "audio.wav"
 
         result = client.audio.transcriptions.create(
@@ -77,19 +72,19 @@ async def run_stt(
             language=language,
         )
 
-        # 3️⃣ transcript 추출
+        # 3️. transcript 추출
         transcript: str = getattr(result, "text", "") or ""
 
         processed_at = datetime.now(timezone.utc).isoformat()
 
-        # 4️⃣ 최종 응답 (timestamp 완전히 제거됨)
+        # 4️.  최종 응답
         return {
             "status": 200,
             "message": "STT 변환이 완료되었습니다.",
             "data": {
                 "recordingId": recording_id,
                 "consultationId": consultation_id,
-                "duration": 0,  # 나중에 필요하면 채우기
+                "duration": 0,
                 "language": language,
                 "transcript": transcript.strip(),
                 "meta": {
