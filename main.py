@@ -1,4 +1,8 @@
 # backend/ai/main.py
+from starlette.formparsers import MultiPartParser
+MultiPartParser.max_part_size = 10 * 1024 * 1024   # 10MB
+MultiPartParser.max_file_size = 50 * 1024 * 1024   # 50MB
+
 
 from typing import Optional
 
