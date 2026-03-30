@@ -2,6 +2,9 @@ fastapi
 uvicorn
 python-dotenv
 pydantic
-requests
-openai
+httpx         # requests 대체 (비동기 HTTP)
+openai        # AsyncOpenAI 사용
 python-multipart
+webrtcvad
+aiofiles      # 비동기 파일 I/O
+pydub         # 오디오 처리 (필요시)
